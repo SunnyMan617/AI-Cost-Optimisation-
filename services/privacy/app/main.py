@@ -4,8 +4,6 @@ from typing import Dict, List
 from fastapi import FastAPI
 from pydantic import BaseModel
 from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer, RecognizerResult
-from presidio_anonymizer import AnonymizerEngine
-from presidio_anonymizer.entities import OperatorConfig
 
 from app.uk_detectors import contains_uk_ni, contains_uk_postcode, is_valid_nhs_number
 
@@ -74,7 +72,6 @@ analyzer = AnalyzerEngine()
 analyzer.registry.add_recognizer(NHSPatternRecognizer())
 analyzer.registry.add_recognizer(UKNIRecognizer())
 analyzer.registry.add_recognizer(UKPostcodeRecognizer())
-anonymizer = AnonymizerEngine()
 
 
 @app.get("/health")
@@ -89,17 +86,34 @@ def mask(req: MaskRequest):
         language="en",
         entities=["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD", "UK_NHS_NUMBER", "UK_NI_NUMBER", "UK_POSTCODE"],
     )
-    operators = {}
+
+    # Keep the first non-overlapping spans in reading order so each detected
+    # occurrence gets a stable, unique placeholder token.
+    results = sorted(results, key=lambda item: (item.start, item.end))
+    non_overlapping_results: List[RecognizerResult] = []
+    current_end = -1
+    for result in results:
+        if result.start < current_end:
+            continue
+        non_overlapping_results.append(result)
+        current_end = result.end
+
+    masked_text = req.text
     mappings: Dict[str, str] = {}
     entities: List[Dict[str, str]] = []
-    for i, result in enumerate(results):
+
+    replacements = []
+    for i, result in enumerate(non_overlapping_results):
         token = f"<PII_{i}>"
         original = req.text[result.start:result.end]
+        replacements.append((result.start, result.end, token))
         mappings[token] = original
         entities.append({"entity_type": result.entity_type, "value": original})
-        operators[result.entity_type] = OperatorConfig("replace", {"new_value": token})
-    anonymized = anonymizer.anonymize(text=req.text, analyzer_results=results, operators=operators)
-    return MaskResponse(masked_text=anonymized.text, mappings=mappings, entities=entities)
+
+    for start, end, token in reversed(replacements):
+        masked_text = f"{masked_text[:start]}{token}{masked_text[end:]}"
+
+    return MaskResponse(masked_text=masked_text, mappings=mappings, entities=entities)
 
 
 @app.post("/restore", response_model=RestoreResponse)

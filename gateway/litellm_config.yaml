@@ -14,6 +14,8 @@ model_list:
 
 litellm_settings:
   set_verbose: true
+  callbacks:
+    - hooks.pre_call_guard.proxy_handler_instance
   success_callback: []
   failure_callback: []
 
