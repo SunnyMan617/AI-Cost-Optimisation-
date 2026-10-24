@@ -46,15 +46,17 @@ class NHSPatternRecognizer(PatternRecognizer):
 
 class UKNIRecognizer(PatternRecognizer):
     def __init__(self):
-        super().__init__(supported_entity="UK_NI_NUMBER", patterns=[])
+        pattern = Pattern(
+            name="uk_ni_number",
+            regex=r"\b(?!BG|GB|KN|NK|NT|TN|ZZ)[A-CEGHJ-PR-TW-Z]{2}\d{6}[A-D]?\b",
+            score=0.7,
+        )
+        super().__init__(supported_entity="UK_NI_NUMBER", patterns=[pattern])
 
     def analyze(self, text, entities, nlp_artifacts=None):
         if not contains_uk_ni(text):
             return []
-        return [
-            RecognizerResult(entity_type="UK_NI_NUMBER", start=match.start(), end=match.end(), score=0.7)
-            for match in re.finditer(r"\b(?!BG|GB|KN|NK|NT|TN|ZZ)[A-CEGHJ-PR-TW-Z]{2}\d{6}[A-D]?\b", text, re.IGNORECASE)
-        ]
+        return super().analyze(text=text, entities=entities, nlp_artifacts=nlp_artifacts)
 
 
 class UKPostcodeRecognizer(PatternRecognizer):
